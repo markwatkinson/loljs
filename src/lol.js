@@ -62,6 +62,12 @@ var lol = function() {
             },
             'BOTH SAEM' : function(a, b) {
                 return a === b;
+            },
+            'SMOOSH' : function(var_args) {
+                var args = [''].concat(Array.prototype.slice.call(arguments));
+                return args.reduce(function(a, b) {
+                    return a + b;
+                });
             }
         };
         pushScope({symbols: builtIns});

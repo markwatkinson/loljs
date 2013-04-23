@@ -32,6 +32,11 @@ exports.testOperators = function(test) {
     test.equal(false, run('BOTH SAEM "1" AN 1'));
     test.equal(false, run('BOTH SAEM WIN AN FAIL'));
 
+    test.equal('S1', run('SMOOSH "S1" MKAY'));
+    test.equal('S1S2', run('SMOOSH "S1" AN "S2" MKAY'));
+    test.equal('S1 S2', run('SMOOSH "S1" AN " " AN "S2" MKAY'));
+
+
     
     // check the nesting.
     test.equal(3, run('SUM OF DIFF OF 5 AN 4 AN 2'));

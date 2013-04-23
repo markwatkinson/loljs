@@ -4,7 +4,6 @@
 
 %%
 
-
 "BTW".*                                         /* skip comment */
 (\r?\n)+                                        return "NEWLINE"
 ","                                             return "COMMA"
@@ -34,7 +33,6 @@
 "NOT"                                           return "NOT"
 "ALL"\s+"OF"                                    return "IDENTIFIER"
 "ANY"\s+"OF"                                    return "IDENTIFIER"
-"SMOOSH"                                        return "SMOOSH"
 "AN"                                            return "SEP"
 "MKAY"                                          return "MKAY"
 \b"R"\b                                         return "R"
@@ -72,8 +70,7 @@ eol
     ;
 
 arg_end
-    : eol { $$ = $1; }
-    | MKAY {$$ = $1;}
+    : MKAY {$$ = $1;}
     ;
 
 arg_list
@@ -94,7 +91,7 @@ function_call
 function_def_arg_list
     : YR IDENTIFIER { $$ = [$2]; }
     | function_def_arg_list SEP YR IDENTIFIER { $1.push($4); $$ = $1; }
-    | {$$ = []; }
+    | /* empty */ {$$ = []; }
     ;
     
 function_def
