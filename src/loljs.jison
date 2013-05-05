@@ -5,22 +5,22 @@
 
 "OBTW"[\s\S]+"TLDR"                             /* skip block comment */
 "BTW".*(\r?\n)*                                 /* skip comment */
-(\r?\n)+                                        return "NEWLINE"
+(\r?\n)+\s*                                     return "NEWLINE"
 ","                                             return "COMMA"
-\s+                                             /* skip whitespace */
-[0-9]+("."[0-9]+)?\b                            return "NUMBER"
+[^\S\r\n]+                                      /* skip whitespace */
+\-?[0-9]+("."[0-9]+)?\b                         return "NUMBER"
 \"([^\":]+|\:.)*\"                              return "YARN"
 \'([^\']*)\'                                    return "YARN"
 "WIN"                                           return "TROOF"
 "FAIL"                                          return "TROOF"
 "NOOB"                                          return "NOOB"
-"HAI"                                           return "HAI"
-"KTHXBYE"                                       return "KTHXBYE"
+"HAI"                                           /* Skip */
+"KTHXBYE"                                       /* Skip */
 "KTHX"                                          return "KTHX"
 "IT"[SZ]                                        return "ITS"
 "I"\s+"HAS"\s+"A"                               return "VAR_DEC"
-"BIGGR"\s+"THAN"                                return "BIN_OP"
-"SMALLR"\s+"THAN"                               return "BIN_OP"
+"BIG"G?"R"\s+"THAN"                             return "BIN_OP"
+"SMAL"L?"R"\s+"THAN"                            return "BIN_OP"
 "SUM"\s+"OF"                                    return "P_BIN_OP"
 "DIFF"\s+"OF"                                   return "P_BIN_OP"
 "PRODUKT"\s+"OF"                                return "P_BIN_OP"
@@ -38,7 +38,7 @@
 "ANY"\s+"OF"                                    return "IDENTIFIER"
 "AN"                                            return "SEP"
 "MKAY"                                          return "MKAY"
-"R"                                           return "R"
+"R"                                             return "R"
 "O"\s+"RLY"\s*"?"                               return "O_RLY"
 "YA"\s+"RLY"                                    return "YA_RLY"
 "MEBBE"                                         return "MEBBE"
@@ -54,6 +54,7 @@
 "UPPIN"                                         return "UPPIN"
 "NERFIN"                                        return "NERFIN"
 "VISIBLE"                                       return "VISIBLE"
+"G"[IE]"MMEH"                                   return "GIMMEH"
 "TIL"                                           return "TIL"
 "WILE"                                          return "WILE"
 "GTFO"                                          return "GTFO"
@@ -69,6 +70,7 @@
 [a-zA-Z_]+[a-zA-Z_0-9]*                         return "IDENTIFIER"
 "("                                             return "("
 ")"                                             return ")"
+"?"                                             /* skip */
 <<EOF>>                                         return "EOF"
 .                                               return "INVALID"
 
@@ -227,6 +229,8 @@ line
     | assignment {$$ = $1; }
     | VISIBLE simple_exp
         { $$ = new ast.Visible(@$, $2); }
+    | GIMMEH IDENTIFIER
+        { $$ = new ast.Gimmeh(@$, $2); }
     | IDENTIFIER CAST_IS_NOW type 
         {
             var ident = new ast.Identifier(@$, $1);

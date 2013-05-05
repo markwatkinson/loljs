@@ -108,6 +108,7 @@ lol.ast.If.prototype = Object.create(lol.ast.Node.prototype);
 lol.ast.Return = function(location, expression) {
     lol.ast.Node.call(this, location, 'Return');
     this.expression = expression || null;
+    
 };
 lol.ast.Return.prototype = Object.create(lol.ast.Node.prototype);
 
@@ -145,6 +146,12 @@ lol.ast.Visible = function(location, expression) {
 };
 lol.ast.Visible.prototype = Object.create(lol.ast.Node.prototype);
 
+lol.ast.Gimmeh = function(location, variable) {
+    lol.ast.Node.call(this, location, 'Gimmeh');
+    this.variable = variable;
+};
+lol.ast.Gimmeh.prototype = Object.create(lol.ast.Node.prototype);
+
 
 lol.ast.Cast = function(location, expression, type) {
     lol.ast.Node.call(this, location, 'Cast');
@@ -154,118 +161,6 @@ lol.ast.Cast = function(location, expression, type) {
 lol.ast.Cast.prototype = Object.create(lol.ast.Node.prototype);
 
 
-if (module) {
+if (typeof module !== 'undefined') {
     module.exports = lol.ast;
 }
-/*
-module.exports = {
-    Body: function() {
-        this._name = 'Body';
-        this.lines = [];
-        this.push = function(line) {
-            this.lines.push(line);
-        }
-    },
-    Declaration: function(name, assignment) {
-        this._name = 'Declaration';
-    },
-
-    Assignment: function(variable, value) {
-        this._name = 'Assignment';
-        this.name = variable;
-        this.value = value;
-    },
-
-    Identifier: function(name) {
-        this._name = 'Identifier';
-        this.name = name;
-    },
-
-    // literals
-    Number: function(num) {
-        this._name = 'Number';
-        this._primitive = true;
-        this.value = Number(num);
-    },
-    Yarn: function(s) {
-        this._name = 'Yarn';
-        this._primitive = true;
-        this.value = s.slice(1, -1);
-    },
-    Troof: function(v) {
-        this._name = 'Truf';
-        this._primitive = true;
-        this.value = !!v;
-    },
-    Noob: function() {
-        this._name = 'Noob';
-        this._primitive = true;
-        this.value = null;
-    },
-
-
-
-
-    ArgList: function(optArgs) {
-        this._name = 'Arg list';
-        this.values = optArgs ? optArgs : [];
-        this.push = function(v) {
-            this.values.push(v);
-        };
-        
-        
-    },
-
-    FunctionCall: function(f, args) {
-        this._name = 'Function Call';
-        this.name = f;
-        this.args = args;
-    },
-    FunctionDefinition: function(f, args, body) {
-        this._name = 'Function Definition';
-        this.name = f;
-        this.args = args;
-        this.body = body;
-    },
-
-    If: function (body) {
-        this._name = 'If';
-        this.condition = null;
-        this.body = body;
-        this.elseIfs = [];
-        this.elseBody = null;
-    },
-    Return: function(exp) {
-        this._name = 'Return';
-        this.exp = exp;
-    },
-
-    LoopOp: function(command, symbol) {
-        this._name = 'Loop Operation';
-        this.command = command;
-        this.symbol = symbol;
-    },
-    LoopCondition: function(check, expression) {
-        this._name = 'Loop Condition';
-        this.check = check;
-        this.exp = expression;
-    },
-
-    Loop: function(body, op, condition) {
-        this._name = 'Loop';
-        this.body = body;
-        this.op = op || null;
-        this.condition = condition || null;
-    },
-
-    Noop: function() {
-        this._name = 'Noop';
-    },
-
-    Visible: function(exp) {
-        this._name = 'Visible';
-        this.exp = exp;
-    }
-    
-    
-};*/

@@ -19,7 +19,7 @@ var lol = function(options) {
                 throw new Error('Oops');
             }
             popped = scope.pop();
-        } while(name && popped.name === name);
+        } while(name && popped && popped.name !== name);
     }
 
 
@@ -146,7 +146,7 @@ var lol = function(options) {
                 });
             },
             'Return' : function(node) {
-                setSpecial('return', evaluate(node.exp));
+                setSpecial('return', evaluate(node.expression));
             },
             'Literal' : function(node) {
                 var val = node.value;
@@ -192,7 +192,7 @@ var lol = function(options) {
                             break;
                         }
                     }
-                    if (!elseMatched) {
+                    if (!elseMatched && node.elseBody) {
                         evaluate(node.elseBody);
                     }
                 }
@@ -248,6 +248,9 @@ var lol = function(options) {
                     throw new Error('Unrecognised type: ' + type);
                 }
                 return raw;
+            },
+            'Gimmeh': function(node) {
+                setSymbol(node.variable, prompt());
             }
         };
 
@@ -283,7 +286,7 @@ var lol = function(options) {
             var primitive = type === 'string' || type === 'boolean' || type ===
                 'number' || value === null;
             if (primitive) {
-                return toYarn(value);
+                return l.toYarn(value);
             } else if (Array.isArray(value)) {
                 if (containers.indexOf(value) > 0) { return '..' }
                 containers.push(value);
@@ -291,7 +294,7 @@ var lol = function(options) {
                 return '[' + s + ']';
             }
         }
-        recurse(value);
+        return recurse(value);
     }
     lol.setIo = function(io) {
         if (io.visible) {
@@ -301,6 +304,6 @@ var lol = function(options) {
 }());
 
 
-if (module) {
+if (typeof module !== 'undefined') {
     module.exports = lol;
 }
