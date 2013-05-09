@@ -1,10 +1,32 @@
 "use strict";
 
-var lol = function(options) {
-    this._scope = [];
-    this._next = null;
-    this._ret;
 
+var lol = function() {
+
+    /**
+     * Interpreter scope data/stack.
+     * Each level of scope consists of a program symbol table and some
+     * 'special' symbols, like return value
+     *
+     * See _push for exact properties.
+     */
+    this._scope = [];
+
+    /**
+     * A stack of actions waiting for attention. An action is (roughly)
+     * a set of nodes which need evaluating, and a callback to receive
+     * the results of their evaluation.
+     *
+     * See _waitFor for exact properties.
+     */
+    this._next = [];
+
+    /**
+     * Default IO functions.
+     * Use console.log for output, and prompt() for input.
+     *
+     * These can (and should) be overridden.
+     */
     this._io = {
         visible: function(var_args) {
             if (!console || typeof console.log !== 'function') {
@@ -24,8 +46,55 @@ var lol = function(options) {
     };
 };
 
-lol.prototype.resume = function() {
-    this._next();
+/**
+ * Async deferral function.
+ *
+ * Defers an action to execute only after a set of nodes has been evaluated.
+ * Nodes will be evaluated in the order given.
+ */
+lol.prototype._waitFor = function(nodes, f, options) {
+    options = options || {
+        setIt: false,
+        breakOnReturn: false
+    };
+    this._next.push({
+        nodes: nodes.slice(0),
+        results: [],
+        f: f,
+        options: options
+    });
+};
+
+/**
+ * Handles an action created with _waitFor.
+ */
+lol.prototype._current = function(current) {
+    var self = this;
+    var node = current.nodes.shift();
+    if (!node) {
+        return;
+    }
+    this._evaluate(node, function(ret) {
+        if (current.options.setIt) {
+            self._setSymbol('IT', ret);
+        }
+        current.results.push(ret);
+        if (!current.nodes.length || (current.options.breakOnReturn
+                && typeof self._getSpecial('return') !== 'undefined'))
+        {
+            current.f(current.results);
+        } else {
+            self._current(current);
+        }
+    });
+}
+
+
+lol.prototype.next = function() {
+    var current = this._next.pop();
+    if (current) {
+        this._current(current);
+    }
 };
 
 lol.prototype._push = function(s) {
@@ -66,190 +135,378 @@ lol.prototype._setSymbol = function(name, value) {
     scope[scope.length - 1].symbols[name] = value;
 }
 
+
+lol.prototype._findScope = function(name) {
+    var scope = this._scope;
+    for (var i = scope.length - 1; i >= 0; i--) {
+        if (scope[i].name === name) {
+            return scope;
+        }
+    }
+    return null;
+};
+
+lol.prototype._findScopeForSpecial = function(symbol) {
+    if (symbol === 'return') {
+        return this._findScope('function');
+    } else {
+        return scope[scope.length - 1];
+    }
+}
+
 lol.prototype._setSpecial = function(name, value) {
-    this._scope[this._scope.length - 1][name] = value;
+    var s = this._findScopeForSpecial(name);
+    if (s) {
+        s[name] = value;
+    }
 };
 
 lol.prototype._getSpecial = function(name) {
-    return this._scope[this._scope.length - 1][name];
+    var s = this._findScopeForSpecial(name);
+    if (s) {
+        return s[name];
+    }
 };
 
 
+/*****************************************************************************
+ *  NODE EVALUATION FUNCTIONS
+ ****************************************************************************/
 
-lol.prototype._evaluate = function(node, setIT) {
+lol.prototype._evaluateLiteral = function(node, done) {
+    // terminal
+    done(node.value);
+};
+
+lol.prototype._evaluateFunctionCall = function(node, done) {
     var self = this;
-    var handlers = {
-        'FunctionCall' : function(node) {
-            var f = self._getSymbol(node.name);
-            if (typeof f !== 'function') {
-                throw new Error(node.name + ' is not a function' );
-            }
-            var args = node.args.values.map(function(a) {
-                return self._evaluate(a);
-            });
-            return f.apply(null, args);
-        },
-        'FunctionDefinition' : function(node) {
-            // we can keep consistency with natively implemented functions
-            // by implementing the evaluation of a function as a function.
-            // In other words: yo dawg, we heard you liked functions so we
-            // put a function in your function so you can _evaluate while you
-            // _evaluate.
-            self._setSymbol(node.name, function(var_args) {
-                var symbols = {}, args = arguments;
-                node.args.forEach(function(a, i) {
-                    symbols[a] = typeof args[i] === 'undefined' ? null : args[i];
-                });
-                self._push({name: 'function', symbols: symbols});
-                var ret = self._evaluate(node.body);
-                if (typeof ret === 'undefined') {
-                    ret = self._getSpecial('return');
-                }
-                self._pop('function');
-                return ret;
-            });
-        },
-        'Return' : function(node) {
-            self._setSpecial('return', self._evaluate(node.expression));
-        },
-        'Literal' : function(node) {
-            var val = node.value;
-            if (typeof val === 'string') {
-                val = val.replace(/:(\{([^}]*)\})/g, function($0, $1) {
-                    if ($1.charAt(0) === '{') {
-                        return self._getSymbol(arguments[2]);
-                    }
-                    return $0;
-                });
-            }
-            return val;
-        },
-        'Declaration' : function(node) {
-            self._setSymbol(node.name, node.value ? self._evaluate(node.value) : null);
-        },
-        'Assignment' : function(node) {
-            self._setSymbol(node.name, self._evaluate(node.value));
-        },
-        'Identifier' : function(node) {
-            var s = self._getSymbol(node.name);
-            if (typeof s === 'function') {
-                // special case - s is a function. We should
-                // probably invoke it?
-                return s();
-            }
-            else { return s; }
-        },
-        'If' : function(node) {
-            var c = node.condition;
-            if (c) { c = self._evaluate(c); }
-            else { c = self._getSymbol('IT'); }
-
-            if (c) {
-                self._evaluate(node.body);
-            } else {
-                var elseMatched = false;
-                for (var i = 0; i < node.elseIfs.length; i++) {
-                    var elseIf = node.elseIfs[i];
-                    if (self._evaluate(elseIf.condition)) {
-                        elseMatched = true;
-                        self._evaluate(elseIf.body);
-                        break;
-                    }
-                }
-                if (!elseMatched && node.elseBody) {
-                    self._evaluate(node.elseBody);
-                }
-            }
-        },
-        'Visible' : function(node) {
-            self.io.visible(self._evaluate(node.expression));
-        },
-        'Body' : function(node) {
-            node.lines.forEach(function(l) {
-                ret = self._evaluate(l, true);
-            });
-            return ret;
-        },
-        'NoOp' : function(node) {},
-        'LoopCondition': function(node) {
-            var ret = self._evaluate(node.expression);
-            return (node.check === 'while') ? ret : !ret;
-        },
-        'LoopOperation' : function(node) {
-            var sym = self._getSymbol(node.symbol);
-            sym = (node.command = 'inc' ? sym + 1 : sym - 1);
-            self._setSymbol(node.symbol, sym);
-        },
-        'Loop' : function(node) {
-            if (node.op) {
-                var symbol = self._getSymbol(node.op.symbol);
-                // initialise the loop symbol to 0 if it's not defined yet.
-                if (typeof symbol === 'undefined') {
-                    self._setSymbol(node.op.symbol, 0);
-                }
-            }
-            var evalBody = !node.condition || self._evaluate(node.condition);
-            self._push({name: 'loop'});
-            while (evalBody) {
-                self._evaluate(node.body);
-                if (node.op) {
-                    self._evaluate(node.op);
-                }
-                evalBody = !node.condition || self._evaluate(node.condition);
-            }
-            self._pop();
-        },
-        'Cast': function(node) {
-            var raw = self._evaluate(node.expression);
-            var type = node.type.toUpperCase();
-            if (type === 'TROOF') { raw = !!raw; }
-            else if (type === 'NOOB') { raw = null; }
-            else if (type === 'YARN') { raw = lol.utils.toYarn(raw); }
-            else if (type === 'NUMBR' || type === 'NUMBAR') {
-                raw = Number(raw);
-            }
-            else {
-                throw new Error('Unrecognised type: ' + type);
-            }
-            return raw;
-        },
-        'Gimmeh': function(node) {
-            self._setSymbol(node.variable, prompt());
+    this._waitFor(node.args.values, function(args) {
+        var f = self._getSymbol(node.name);
+        if (typeof f !== 'function') {
+            throw new Error(node.name + ' is not a function' );
         }
+        if (typeof f.async !== 'undefined' && f.async) {
+            args.push(done);
+            f.apply(null, args);
+            return;
+        } else {
+            var v = f.apply(null, args);
+            done(v);
+        }
+    });
+};
+
+lol.prototype._evaluateBody = function(node, done) {
+    this._waitFor(node.lines, function(lines) {
+        var ret = lines[lines.length - 1];
+        if (typeof ret === 'undefined') { ret = null; }
+        done(ret);
+    }, {setIt: true, breakOnReturn: true});
+};
+
+lol.prototype._evaluateIdentifier = function(node, done) {
+    var s = this._getSymbol(node.name);
+    if (typeof s === 'function') {
+        // special case - s is a function. We should
+        // probably invoke it?
+        if (typeof s.async !== 'undefined' && s.async) {
+            s(done);
+            return;
+        }
+        else {
+            s = s();
+        }
+    }
+    done(s);
+};
+
+
+lol.prototype._evaluateAssignment = function(node, done) {
+    var self = this;
+    this._waitFor([node.value], function(values) {
+        self._setSymbol(node.name, values[0]);
+        done(values[0]);
+    });
+};
+
+lol.prototype._evaluateDeclaration = function(node, done) {
+    var self = this;
+    if (node.value) {
+        this._waitFor([node.value], function(values) {
+            self._setSymbol(node.name, values[0]);
+            done(values[0]);
+        });
+    }
+    else {
+        self._setSymbol(node.name, null);
+        done(null);
+    }
+};
+
+
+lol.prototype._evaluateIf = function(node, done) {
+    var self = this;
+    var c = node.condition;
+
+    var eIfs = node.elseIfs.slice(0);
+
+    var eCondition = function(done) {
+        if (c) {
+            self._waitFor([c], done);
+        } else {
+            done(self._getSymbol('IT'));
+        }
+    }
+
+    var eBody = function(done) {
+        self._waitFor([node.body], function() {
+            done(null);
+        });
+    }
+
+    var elseIfs = function(done) {
+        var e = eIfs.shift();
+        if (!e) {
+            done(false);
+        } else {
+            self._waitFor([e.condition], function(v) {
+                if (v[0]) {
+                    self._waitFor([e.body], function(v) {
+                        done(true);
+                    });
+                } else {
+                    // recurse
+                    elseIfs(done);
+                }
+            });
+        }
+    }
+
+    eCondition(function(e) {
+        if (e) { eBody(done); }
+        else {
+            elseIfs(function(elseIfMatched) {
+                if (!elseIfMatched && node.elseBody) {
+                    self._waitFor([node.elseBody], done);
+                }
+                else {
+                    done(null);
+                }
+            });
+        }
+    });
+};
+
+lol.prototype._evaluateNoOp = function(node, done) {
+    // terminal.
+    done(null);
+};
+
+lol.prototype._evaluateLoopCondition = function(node, done) {
+    var self = this;
+    // Loops can have an empty condition, which is the equivalent of
+    // while(true) {}.
+    // It's easier to handle that here than the loop node.
+    if (!node) {
+        done(true);
+    } else {
+        this._waitFor([node.expression], function(vals) {
+            done( (node.check === 'while') ? vals[0] : !vals[0] );
+        });
+    }
+}
+
+lol.prototype._evaluateLoop = function(node, done) {
+    var self = this;
+    if (node.op) {
+        try {
+            var symbol = this._getSymbol(node.op.symbol);
+        } catch (err) {
+            // initialise the loop symbol to 0 if it's not defined yet.
+            this._setSymbol(node.op.symbol, 0);
+        }
+    }
+    self._push({name: 'loop'});
+
+    var evalOp = function() {
+        if (node.op) {
+            var sym = self._getSymbol(node.op.symbol);
+            sym = (node.op.command = 'inc' ? sym + 1 : sym - 1);
+            self._setSymbol(node.op.symbol, sym);
+        }
+    }
+
+    var evalBody = function(done) {
+        self._waitFor([node.body], done);
+    };
+
+    var loop = function() {
+        self._waitFor([node.condition], function(vals) {
+            if (vals[0]) {
+                evalBody(function() {
+                    evalOp();
+                    loop();
+                });
+            } else {
+                self._pop('loop');
+                done(null);
+            }
+        });
+    }
+    loop();
+}
+
+
+lol.prototype._evaluateFunctionDefinition = function(node, done) {
+    // terminal
+    var self = this;
+
+    // we can keep consistency with natively implemented functions
+    // by implementing the evaluation of a function as a function.
+    // In other words: yo dawg, we heard you liked functions so we
+    // put a function in your function so you can _evaluate while you
+    // _evaluate.
+
+    // The difference is that user defined functions are non-terminals and
+    // therefore are asynchronous, whereas native functions are terminals
+    // and return their value. So the caller knows how to handle both, we'll
+    // add an async property to the function. This should be ok.
+
+    var f = function(var_args) {
+        var symbols = {}, args = lol.utils.argsArray(arguments);
+        var done = args.pop();
+        node.args.forEach(function(a, i) {
+            symbols[a] = typeof args[i] === 'undefined' ? null : args[i];
+        });
+        self._push({name: 'function', symbols: symbols});
+        self._waitFor([node.body], function(lines) {
+            var ret = self._getSpecial('return');
+            if (typeof ret === 'undefined') {
+                ret = self._getSymbol('IT');
+            }
+            if (typeof ret === 'undefined') {
+                ret = null;
+            }
+            self._pop('function');
+            done(ret);
+        });
+    };
+    f.async = true;
+
+    self._setSymbol(node.name, f, {setIt: true});
+    done(null);
+}
+
+lol.prototype._evaluateCast = function(node, done) {
+    var self = this;
+    this._waitFor([node.expression], function(vals) {
+        var raw = vals[0];
+        var type = node.type.toUpperCase();
+        if (type === 'TROOF') { raw = !!raw; }
+        else if (type === 'NOOB') { raw = null; }
+        else if (type === 'YARN') { raw = lol.utils.toYarn(raw); }
+        else if (type === 'NUMBR' || type === 'NUMBAR') {
+            raw = Number(raw);
+        }
+        else {
+            throw new Error('Unrecognised type: ' + type);
+        }
+        done(raw);
+    });
+}
+
+lol.prototype._evaluateVisible = function(node, done) {
+    var self = this;
+    this._waitFor([node.expression], function(vals) {
+        self._io.visible(vals[0]);
+        done(vals[0]);
+    });
+};
+lol.prototype._evaluateGimmeh = function(node, done) {
+    // terminal
+    var self = this;
+    this._io.prompt('', function(reply) {
+        self._setSymbol(node.variable, reply);
+        done(reply);
+    });
+};
+
+lol.prototype._evaluateReturn = function(node, done) {
+    var self = this;
+    this._waitFor([node.expression], function(vals) {
+        self._setSpecial('return', vals[0])
+        done(vals[0]);
+    });
+}
+
+lol.prototype._evaluate = function(node, done) {
+    var handlers = {
+        'Assignment' : this._evaluateAssignment,
+        'Body': this._evaluateBody,
+        'Cast': this._evaluateCast,
+        'Declaration': this._evaluateDeclaration,
+        'FunctionCall': this._evaluateFunctionCall,
+        'FunctionDefinition': this._evaluateFunctionDefinition,
+        'Gimmeh' : this._evaluateGimmeh,
+        'Identifier': this._evaluateIdentifier,
+        'If': this._evaluateIf,
+        'Literal': this._evaluateLiteral,
+        'Loop' : this._evaluateLoop,
+        'LoopCondition' : this._evaluateLoopCondition,
+        'NoOp': this._evaluateNoOp,
+        'Return': this._evaluateReturn,
+        'Visible' : this._evaluateVisible
     };
 
     var handler = handlers[node._name];
-
     if (!handler) {
         throw new Error('Not implemented: ' + node._name);
     }
     else {
-        var ret = handler(node);
-        if (setIT) {
-            self._setSymbol('IT', ret);
-        }
-        return ret;
+        handler.call(this, node, done);
     }
-};
+}
 
 lol.prototype._reset = function() {
     this._scope.length = 0;
-    // clone built ins, otherwise they're a reference to a static property, i.e.
-    // a program could overwrite them and break them for all subsequent executions.
-    // I think keeping a reference to the function is fine though, there shouldn't
-    // be any potential to escape the interpreter to modify that.
+    this._next.length = 0;
+    // clone built ins, otherwise they're a reference to a static property, i
+    //i.e. a program could overwrite them and break them for all subsequent
+    // executions.
+    // I think keeping a reference to the function is fine though, there
+    // shouldn't be any potential to escape the interpreter to modify that.
     var symbols = {};
     for (var name in lol.builtIns) {
         if (lol.builtIns.hasOwnProperty(name)) {
             symbols[name] = lol.builtIns[name];
         }
     }
-    this._push({name: 'program', symbols: symbols})
+    this._push({name: 'program', symbols: symbols});
 }
 
-lol.prototype.evaluate = function(tree) {
+lol.prototype.evaluate = function(tree, output) {
+    var self = this;
     this._reset();
-    return this._evaluate(tree);
+    var done = false;
+    this._evaluate(tree, function(ret) {
+        done = true;
+        output(ret);
+    });
+
+    // Let's try not to block for more than 200ms at a time.
+    // There is a balance here between keeping a totally responsive UI and not
+    // taking all year to execute a simple program because we're forever
+    // scheduling execution for the future.
+    var tickFunc = function() {
+        var s = +new Date();
+        while (!done && (+new Date() - s < 200)) {
+            self.next();
+        }
+        if (!done) {
+            lol.utils.nextTick(tickFunc);
+        }
+    };
+    tickFunc();
 };
 
 
@@ -265,10 +522,17 @@ lol.utils = {
     }
 };
 
+/**
+ * Converts an arguments object as a proper array.
+ */
 lol.utils.argsArray = function(a) {
     return Array.prototype.slice.call(a);
 };
 
+
+/**
+ * LOLCODE built in functions.
+ */
 lol.builtIns = {
     'NOT' : function(a) {
         return !a;
@@ -311,12 +575,23 @@ lol.builtIns = {
     'SMALLR THAN' : function(a, b) { return a < b; }
 };
 
+(function() {
+    var nextTick;
+    if (typeof setImmediate === 'function') {
+        nextTick = setImmediate;
+    } else if (typeof window !== 'undefined') {
+        if (window.setImmediate) { nextTick = window.setImmediate; }
+        else if (window.setTimeout) {
+            nextTick = function(f) { window.setTimeout(f, 0); }
+        }
+    }
+    if (!nextTick) {
+        throw new Error("Couldn't find setImmediate, or window.setTimeout");
+    }
+    lol.utils.nextTick = nextTick;
+}());
 
-lol.evaluate = function(var_args) {
-    var l = new lol();
-    return l.evaluate.apply(l, lol.utils.argsArray(arguments));
-};
-
+// Node exports.
 if (typeof module !== 'undefined') {
     module.exports = lol;
 }

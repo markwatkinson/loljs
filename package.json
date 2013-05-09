@@ -1,6 +1,7 @@
 {
     "dependencies" : {
         "jison"   :  "*",
-        "nodeunit" : "*"
+        "nodeunit" : "*",
+        "async": "*"
   }
 }
