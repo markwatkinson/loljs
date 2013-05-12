@@ -108,7 +108,7 @@ lol.ast.If.prototype = Object.create(lol.ast.Node.prototype);
 lol.ast.Return = function(location, expression) {
     lol.ast.Node.call(this, location, 'Return');
     this.expression = expression || null;
-    
+
 };
 lol.ast.Return.prototype = Object.create(lol.ast.Node.prototype);
 
@@ -159,6 +159,12 @@ lol.ast.Cast = function(location, expression, type) {
     this.type = type;
 };
 lol.ast.Cast.prototype = Object.create(lol.ast.Node.prototype);
+
+
+lol.ast.Breakpoint = function(location) {
+    lol.ast.Node.call(this, location, 'Breakpoint');
+};
+lol.ast.Breakpoint.prototype = Object.create(lol.ast.Node.prototype);
 
 
 if (typeof module !== 'undefined') {

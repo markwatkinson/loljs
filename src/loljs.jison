@@ -67,6 +67,7 @@
 "MAEK"                                          return "CAST_MAEK"
 "IS"\s+"NOW"\s+"A"                              return "CAST_IS_NOW"
 "A"                                             return "A"
+"PLZ HALP"                                      return "HALP"
 [a-zA-Z_]+[a-zA-Z_0-9]*                         return "IDENTIFIER"
 "("                                             return "("
 ")"                                             return ")"
@@ -120,7 +121,7 @@ function_def_arg_list
     | function_def_arg_list SEP YR IDENTIFIER { $1.push($4); $$ = $1; }
     | /* empty */ {$$ = []; }
     ;
-    
+
 function_def
     : HOW_DUZ_I IDENTIFIER function_def_arg_list eol body IF_U_SAY_SO
         { $$ = new ast.FunctionDefinition(@$, $2, $3, $5); }
@@ -217,7 +218,7 @@ assignment
     : IDENTIFIER "R" simple_exp
         { $$ = new ast.Assignment(@$, $1, $3); }
     ;
-    
+
 
 line
     : var_dec { $$ = $1; }
@@ -231,7 +232,7 @@ line
         { $$ = new ast.Visible(@$, $2); }
     | GIMMEH IDENTIFIER
         { $$ = new ast.Gimmeh(@$, $2); }
-    | IDENTIFIER CAST_IS_NOW type 
+    | IDENTIFIER CAST_IS_NOW type
         {
             var ident = new ast.Identifier(@$, $1);
             var cast = $$ = new ast.Cast(@$, ident, $3);
@@ -240,4 +241,5 @@ line
         }
     | conditional { $$ = $1; }
     | function_def { $$ = $1; }
+    | HALP { $$ = new ast.Breakpoint(@$); }
     ;

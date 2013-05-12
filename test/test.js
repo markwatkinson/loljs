@@ -13,12 +13,11 @@ global.ast = ast;
 
 function t_(expected, expression, test, done) {
     var tree = parser.parse(expression);
-    var l = new lol();
-
-    l.evaluate(tree, function(response) {
+    var l = new lol(function(response) {
         test.strictEqual(response, expected);
         done();
     });
+    l.evaluate(tree);
 }
 
 function t(expected, expression, test) {

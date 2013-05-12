@@ -1,7 +1,7 @@
 "use strict";
 
 
-var lol = function() {
+var lol = function(onDone, onPaused) {
 
     /**
      * Interpreter scope data/stack.
@@ -44,6 +44,15 @@ var lol = function() {
             reply(response);
         }
     };
+
+    this._isPaused = false;
+    this._isDone = true;
+
+    this._done = onDone || function() {};
+    this._paused = onPaused || function() {};
+
+    this._currentNode = null;
+
 };
 
 /**
@@ -83,6 +92,7 @@ lol.prototype._current = function(current) {
                 && typeof self._getSpecial('return') !== 'undefined'))
         {
             current.f(current.results);
+            self._currentNode = null;
         } else {
             self._current(current);
         }
@@ -91,11 +101,19 @@ lol.prototype._current = function(current) {
 
 
 lol.prototype.next = function() {
+    this._isPaused = false;
     var current = this._next.pop();
     if (current) {
         this._current(current);
     }
 };
+
+lol.prototype.pause = function(keepQuiet) {
+    this._isPaused = true;
+    if (!keepQuiet) {
+        this._paused.call(this);
+    }
+}
 
 lol.prototype._push = function(s) {
     if (!s.name) { throw new Error('Scope must have name'); }
@@ -105,17 +123,19 @@ lol.prototype._push = function(s) {
 };
 
 lol.prototype._pop = function(name) {
-    var popped;
-    do {
-        // we should never be able to pop the root scope
-        if (this._scope.length === 1) {
-            throw new Error('Oops');
+
+    var popped = this._scope.pop();
+    if (!popped || popped.name !== name) {
+        var msg = "Couldn't pop state " + name + '.\nStack:\n';
+        while (popped) {
+            msg += popped.name + '\n';
+            popped = this._scope.pop();
         }
-        popped = this._scope.pop();
-    } while(name && popped && popped.name !== name);
+        throw new Error(msg);
+    }
 };
 
-lol.prototype._getSymbol = function(name) {
+lol.prototype.getSymbol = function(name) {
     var scope = this._scope;
     for (var i = scope.length - 1; i >= 0; i--) {
         if (scope[i].symbols.hasOwnProperty(name)) {
@@ -181,18 +201,11 @@ lol.prototype._evaluateLiteral = function(node, done) {
 lol.prototype._evaluateFunctionCall = function(node, done) {
     var self = this;
     this._waitFor(node.args.values, function(args) {
-        var f = self._getSymbol(node.name);
+        var f = self.getSymbol(node.name);
         if (typeof f !== 'function') {
             throw new Error(node.name + ' is not a function' );
         }
-        if (typeof f.async !== 'undefined' && f.async) {
-            args.push(done);
-            f.apply(null, args);
-            return;
-        } else {
-            var v = f.apply(null, args);
-            done(v);
-        }
+        self._callFunction(f, args, done);
     });
 };
 
@@ -205,17 +218,12 @@ lol.prototype._evaluateBody = function(node, done) {
 };
 
 lol.prototype._evaluateIdentifier = function(node, done) {
-    var s = this._getSymbol(node.name);
+    var s = this.getSymbol(node.name);
     if (typeof s === 'function') {
         // special case - s is a function. We should
         // probably invoke it?
-        if (typeof s.async !== 'undefined' && s.async) {
-            s(done);
-            return;
-        }
-        else {
-            s = s();
-        }
+        this._callFunction(s, [], done);
+        return;
     }
     done(s);
 };
@@ -254,7 +262,7 @@ lol.prototype._evaluateIf = function(node, done) {
         if (c) {
             self._waitFor([c], done);
         } else {
-            done(self._getSymbol('IT'));
+            done(self.getSymbol('IT'));
         }
     }
 
@@ -320,7 +328,7 @@ lol.prototype._evaluateLoop = function(node, done) {
     var self = this;
     if (node.op) {
         try {
-            var symbol = this._getSymbol(node.op.symbol);
+            var symbol = this.getSymbol(node.op.symbol);
         } catch (err) {
             // initialise the loop symbol to 0 if it's not defined yet.
             this._setSymbol(node.op.symbol, 0);
@@ -330,7 +338,7 @@ lol.prototype._evaluateLoop = function(node, done) {
 
     var evalOp = function() {
         if (node.op) {
-            var sym = self._getSymbol(node.op.symbol);
+            var sym = self.getSymbol(node.op.symbol);
             sym = (node.op.command = 'inc' ? sym + 1 : sym - 1);
             self._setSymbol(node.op.symbol, sym);
         }
@@ -356,6 +364,32 @@ lol.prototype._evaluateLoop = function(node, done) {
     loop();
 }
 
+lol.prototype._callFunction = function(f, args, done) {
+    var self = this;
+
+    this._push({
+        name: 'function',
+        symbol: f
+    });
+
+    if (!f._data || f._data.builtIn) {
+        var ret = f.apply(null, args);
+        this._pop('function');
+        done(ret);
+
+        return;
+    }
+    for (var i = 0; i < f._data.args.length; i++) {
+        this._setSymbol(f._data.args[i],
+                        typeof args[i] === 'undefined' ? null : args[i]);
+    }
+
+    f(function(ret) {
+        self._pop('function')
+        done(ret);
+    });
+};
+
 
 lol.prototype._evaluateFunctionDefinition = function(node, done) {
     // terminal
@@ -372,26 +406,24 @@ lol.prototype._evaluateFunctionDefinition = function(node, done) {
     // and return their value. So the caller knows how to handle both, we'll
     // add an async property to the function. This should be ok.
 
-    var f = function(var_args) {
-        var symbols = {}, args = lol.utils.argsArray(arguments);
-        var done = args.pop();
-        node.args.forEach(function(a, i) {
-            symbols[a] = typeof args[i] === 'undefined' ? null : args[i];
-        });
-        self._push({name: 'function', symbols: symbols});
+    var f = function(done) {
         self._waitFor([node.body], function(lines) {
             var ret = self._getSpecial('return');
             if (typeof ret === 'undefined') {
-                ret = self._getSymbol('IT');
+                ret = self.getSymbol('IT');
             }
             if (typeof ret === 'undefined') {
                 ret = null;
             }
-            self._pop('function');
             done(ret);
         });
     };
-    f.async = true;
+    f._data = {
+        builtIn: false,
+        args: node.args.slice(0),
+        name: node.name
+    };
+
 
     self._setSymbol(node.name, f, {setIt: true});
     done(null);
@@ -437,11 +469,19 @@ lol.prototype._evaluateReturn = function(node, done) {
         self._setSpecial('return', vals[0])
         done(vals[0]);
     });
+};
+
+lol.prototype._evaluateBreakpoint = function(node, done) {
+    this.pause();
+    done();
 }
 
 lol.prototype._evaluate = function(node, done) {
+    this._currentNode = node;
+
     var handlers = {
-        'Assignment' : this._evaluateAssignment,
+        'Assignment': this._evaluateAssignment,
+        'Breakpoint': this._evaluateBreakpoint,
         'Body': this._evaluateBody,
         'Cast': this._evaluateCast,
         'Declaration': this._evaluateDeclaration,
@@ -484,13 +524,14 @@ lol.prototype._reset = function() {
     this._push({name: 'program', symbols: symbols});
 }
 
-lol.prototype.evaluate = function(tree, output) {
+lol.prototype.evaluate = function(tree) {
     var self = this;
+
     this._reset();
     var done = false;
     this._evaluate(tree, function(ret) {
         done = true;
-        output(ret);
+        self._done.call(self, ret);
     });
 
     // Let's try not to block for more than 200ms at a time.
@@ -499,7 +540,7 @@ lol.prototype.evaluate = function(tree, output) {
     // scheduling execution for the future.
     var tickFunc = function() {
         var s = +new Date();
-        while (!done && (+new Date() - s < 200)) {
+        while (!done && (+new Date() - s < 200) && !self._isPaused) {
             self.next();
         }
         if (!done) {
