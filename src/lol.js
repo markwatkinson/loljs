@@ -46,12 +46,13 @@ var lol = function(onDone, onPaused) {
     };
 
     this._isPaused = false;
-    this._isDone = true;
 
     this._done = onDone || function() {};
     this._paused = onPaused || function() {};
 
     this._currentNode = null;
+
+    this._errors = [];
 
 };
 
@@ -101,6 +102,11 @@ lol.prototype._current = function(current) {
 
 
 lol.prototype.next = function() {
+    if (this.errors().length) {
+        // nope
+        this.pause();
+        return;
+    }
     this._isPaused = false;
     var current = this._next.pop();
     if (current) {
@@ -108,11 +114,38 @@ lol.prototype.next = function() {
     }
 };
 
+
+lol.prototype.resume = function() {
+    this._isPaused = false;
+    this.tick.go();
+}
+
 lol.prototype.pause = function(keepQuiet) {
     this._isPaused = true;
     if (!keepQuiet) {
         this._paused.call(this);
     }
+}
+
+lol.prototype._error = function(err) {
+    this._errors.push(err);
+    this.tick.cancel();
+    this.pause();
+}
+
+
+lol.prototype.errors = function() {
+    return this._errors;
+}
+
+lol.prototype.pos = function() {
+    var c = this._currentNode._location;
+    return {
+        line: c.first_line - 1,
+        col: c.first_column,
+        lineEnd: c.last_line - 1,
+        colEnd: c.last_column
+    };
 }
 
 lol.prototype._push = function(s) {
@@ -123,7 +156,6 @@ lol.prototype._push = function(s) {
 };
 
 lol.prototype._pop = function(name) {
-
     var popped = this._scope.pop();
     if (!popped || popped.name !== name) {
         var msg = "Couldn't pop state " + name + '.\nStack:\n';
@@ -201,9 +233,15 @@ lol.prototype._evaluateLiteral = function(node, done) {
 lol.prototype._evaluateFunctionCall = function(node, done) {
     var self = this;
     this._waitFor(node.args.values, function(args) {
-        var f = self.getSymbol(node.name);
-        if (typeof f !== 'function') {
-            throw new Error(node.name + ' is not a function' );
+        var f;
+        try {
+            f = self.getSymbol(node.name);
+            if (typeof f !== 'function') {
+                throw new Error(node.name + ' is not a function' );
+            }
+        } catch (err) {
+            self._error('' + err);
+            return;
         }
         self._callFunction(f, args, done);
     });
@@ -218,7 +256,13 @@ lol.prototype._evaluateBody = function(node, done) {
 };
 
 lol.prototype._evaluateIdentifier = function(node, done) {
-    var s = this.getSymbol(node.name);
+    var s;
+    try {
+        s = this.getSymbol(node.name);
+    } catch (err) {
+        this._error('' + err);
+        return;
+    }
     if (typeof s === 'function') {
         // special case - s is a function. We should
         // probably invoke it?
@@ -507,11 +551,9 @@ lol.prototype._evaluate = function(node, done) {
     }
 }
 
-lol.prototype._reset = function() {
-    this._scope.length = 0;
-    this._next.length = 0;
-    // clone built ins, otherwise they're a reference to a static property, i
-    //i.e. a program could overwrite them and break them for all subsequent
+lol.prototype._pushProgramState = function() {
+    // clone built ins, otherwise they're a reference to a static property,
+    // i.e. a program could overwrite them and break them for all subsequent
     // executions.
     // I think keeping a reference to the function is fine though, there
     // shouldn't be any potential to escape the interpreter to modify that.
@@ -524,30 +566,107 @@ lol.prototype._reset = function() {
     this._push({name: 'program', symbols: symbols});
 }
 
-lol.prototype.evaluate = function(tree) {
+lol.prototype._reset = function() {
+    this._scope.length = 0;
+    this._next.length = 0;
+    this._pushProgramState();
+    this._errors.length = 0;
+    this._isPaused = false;
+    this._currentNode = null;
+};
+
+
+lol.prototype.evaluateWatchExpression = function(tree, done, error) {
+    function cloneObj(s) {
+        // The symbol table is a reference copy rather than a clone.
+        // This is probably okay, as it means that the watch expressions
+        // can change the program's state.
+        var s_ = {};
+        for (var name in s) {
+            if (s.hasOwnProperty(name)) {
+                var o = s[name];
+                var cloned = o;
+                s_[name] = o;
+            }
+        }
+        return s_;
+    }
+    var l = new lol(done, error);
+    l._io = this._io;
+    l._scope = this._scope.map(function(s) {
+        return cloneObj(s);
+    });
+    l.evaluate(tree, true);
+}
+
+
+
+lol.prototype.evaluate = function(tree, dontReset) {
     var self = this;
 
-    this._reset();
+    if (!dontReset) {
+        this._reset();
+    }
     var done = false;
     this._evaluate(tree, function(ret) {
         done = true;
         self._done.call(self, ret);
     });
 
-    // Let's try not to block for more than 200ms at a time.
-    // There is a balance here between keeping a totally responsive UI and not
-    // taking all year to execute a simple program because we're forever
-    // scheduling execution for the future.
-    var tickFunc = function() {
-        var s = +new Date();
-        while (!done && (+new Date() - s < 200) && !self._isPaused) {
-            self.next();
-        }
-        if (!done) {
-            lol.utils.nextTick(tickFunc);
+    // We evaluate things asynchronously so we don't crash the browser if the
+    // user has entered an infinite loop.
+    // We also allow arbitrary breakpoints, which makes things a bit more
+    // complicated.
+
+    // To keep things fairly transparent to the caller, we handle here a loop
+    // (called the tick), which is responsible for progressing the program
+    // in chunks, and scheduling itself to continue.
+    // That's what this next bit is all about.
+
+    // if there's already an active ticker, cancel it so it won't do any more,
+    // then replace it
+
+    if (this.tick) {
+        this.tick.cancel();
+    }
+
+    this.tick = {
+        _cancel: false,
+        _isRunning: false,
+        cancel: function() { this._cancel = true; },
+
+        _go: function() {
+            var thisTick = this;
+
+            // Let's try not to block for more than 200ms at a time.
+            // There is a balance here between keeping a totally responsive UI and not
+            // taking all year to execute a simple program because we're forever
+            // scheduling execution for the future.
+            if (this._cancel || self._isPaused) {
+                console.log('pausing');
+                this._isRunning = false;
+                return;
+            }
+
+            this._isRunning = true;
+            var s = +new Date();
+            while (!done && (+new Date() - s < 200) && !self._isPaused) {
+                self.next();
+            }
+            if (!done) {
+                lol.utils.nextTick(function() {
+                    thisTick._go();
+                });
+            } else {
+                this._isRunning = false;
+            }
+        },
+
+        go: function() {
+            if (!this._isRunning) { this._go(); }
         }
     };
-    tickFunc();
+    this.tick.go();
 };
 
 
@@ -613,7 +732,8 @@ lol.builtIns = {
         }));
     },
     'BIGGR THAN' : function(a, b) { return a > b; },
-    'SMALLR THAN' : function(a, b) { return a < b; }
+    'SMALLR THAN' : function(a, b) { return a < b; },
+    'MOD OF' : function(a, b) {  return a % b;  }
 };
 
 (function() {

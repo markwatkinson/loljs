@@ -4,7 +4,7 @@
 %%
 
 "OBTW"[\s\S]+"TLDR"                             /* skip block comment */
-"BTW".*(\r?\n)*                                 /* skip comment */
+"BTW".*                                         /* skip comment */
 (\r?\n)+\s*                                     return "NEWLINE"
 ","                                             return "COMMA"
 [^\S\r\n]+                                      /* skip whitespace */
@@ -14,8 +14,8 @@
 "WIN"                                           return "TROOF"
 "FAIL"                                          return "TROOF"
 "NOOB"                                          return "NOOB"
-"HAI"                                           /* Skip */
-"KTHXBYE"                                       /* Skip */
+"HAI"\s*                                        /* skip */
+"KTHXBYE"\s*                                    /* skip */
 "KTHX"                                          return "KTHX"
 "IT"[SZ]                                        return "ITS"
 "I"\s+"HAS"\s+"A"                               return "VAR_DEC"
@@ -87,7 +87,7 @@
 
 root
     : body
-        {  return $1; }
+        { return $1; }
     | root eol { return $1 }
     ;
 
@@ -99,6 +99,7 @@ eol
 
 arg_end
     : MKAY {$$ = $1;}
+    | eol
     ;
 
 arg_list
@@ -183,19 +184,23 @@ var_dec
     | VAR_DEC IDENTIFIER
         { $$ = new ast.Declaration(@$, $2) }
     ;
-conditional
+
+conditional_inner
     : O_RLY eol YA_RLY eol body
         { $$ = new ast.If(@$, $5); }
-    | conditional MEBBE simple_exp eol body
+    | conditional_inner MEBBE simple_exp eol body
         {
             var elseIf = new ast.If(@$, $5);
             elseIf.condition = $3;
             $1.elseIfs.push(elseIf);
             $$ = $1;
         }
-    | conditional NO_WAI eol body
+    | conditional_inner NO_WAI eol body
         { $1.elseBody = $4; $$ = $1; }
-    | conditional OIC { $$ = $1; }
+    ;
+
+conditional
+    : conditional_inner OIC { $$ = $1; }
     ;
 
 
