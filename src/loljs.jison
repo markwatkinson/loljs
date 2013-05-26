@@ -138,10 +138,14 @@ loop_condition
     | WILE simple_exp { $$ = new ast.LoopCondition(@$, 'while', $2); }
     ;
 
+loop_end
+    : IM_OUTTA_YR IDENTIFIER { $$ = $1; }
+    | IM_OUTTA_YR { $$ = $1; }
+    ;
 loop
     : IM_IN_YR IDENTIFIER eol body KTHX
         { $$ = new ast.Loop(@$, $4) }
-    | IM_IN_YR IDENTIFIER loop_operation loop_condition eol body IM_OUTTA_YR IDENTIFIER
+    | IM_IN_YR IDENTIFIER loop_operation loop_condition eol body loop_end
         {
             $$ = new ast.Loop(@$, $6, $3, $4);
         }
