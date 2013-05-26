@@ -596,6 +596,9 @@ lol.prototype.evaluateWatchExpression = function(tree, done, error) {
     l._scope = this._scope.map(function(s) {
         return cloneObj(s);
     });
+    if (!l._scope.length) {
+        l._pushProgramState();
+    }
     l.evaluate(tree, true);
 }
 
