@@ -672,6 +672,15 @@ lol.prototype.evaluate = function(tree, dontReset) {
     this.tick.go();
 };
 
+lol.prototype.setIo = function(object) {
+    if (typeof object.visible === 'function') {
+        this._io.visible = object.visible;
+    }
+    if (typeof object.prompt === 'function') {
+        this._io.prompt = object.prompt;
+    }
+};
+
 
 /**
  * Static functions
