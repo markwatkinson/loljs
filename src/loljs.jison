@@ -83,12 +83,10 @@
 
 %start root
 %% /* language grammar */
-%ebnf
 
 root
     : body
         { return $1; }
-    | root eol { return $1 }
     ;
 
 eol
@@ -215,6 +213,10 @@ body
         {
             $$ = new ast.Body(@$);
             $$.push($1);
+        }
+    | body eol
+        {
+            $$ = $1;
         }
     | body line eol
         {
