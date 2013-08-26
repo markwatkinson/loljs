@@ -274,6 +274,14 @@ exports.testArray = function(test) {
         t(3,'I HAS A array ITS GOT 3 AN 2 AN 1\narray!0', test, f),
         t(2,'I HAS A array ITS GOT 3 AN 2 AN 1\narray!1', test, f),
         t(1,'I HAS A array ITS GOT 3 AN 2 AN 1\narray!2', test, f),
+
+        t([2, 4, 8],
+                    'I HAS A array ITS GOT NOTHING\n' +
+                     'array!1 R 1\n' +
+                     'array!2 R 5\n' +
+                     'array!3 R GOT 2 AN 4 AN 8\n' +
+                     'array!3\n',
+        test, f),
     ], function() {
         test.done();
     });

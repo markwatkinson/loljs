@@ -245,7 +245,7 @@ lol.prototype._index = function(val, index) {
     if (typeof val === 'string') {
         return val.charAt(normalisedIndex);
     }
-    else if (Object.prototype.toString.call(val) === '[object Array]' ) {
+    else if (Object.prototype.toString.call(val) === '[object Array]') {
         if (normalisedIndex < val.length) {
             return val[normalisedIndex];
         }
@@ -606,7 +606,7 @@ lol.prototype._evaluateCast = function(node, done) {
 lol.prototype._evaluateVisible = function(node, done) {
     var self = this;
     this._waitFor([node.expression], function(vals) {
-        self._io.visible(vals[0]);
+        self._io.visible(lol.utils.toYarn(vals[0]));
         done(vals[0]);
     });
 };
@@ -803,6 +803,15 @@ lol.utils = {
         if (val === true) { return 'WIN'; }
         else if (val === false) { return 'FAIL'; }
         else if (val === null) { return 'NOOB'; }
+        else if (Object.prototype.toString.call(val) === '[object Array]') {
+            var ret = '[';
+            for (var i = 0; i < val.length; i++) {
+                ret += lol.utils.toYarn(val[i]);
+                if (i !== val.length - 1) { ret += ', ' }
+            }
+            ret += ']';
+            return ret;
+        }
         else return '' + val;
     }
 };
