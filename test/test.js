@@ -11,20 +11,21 @@ var async = require('async'),
 
 global.ast = ast;
 
-function t_(expected, expression, test, done) {
+function t_(expected, expression, test, done, eqFunc) {
     var tree = parser.parse(expression);
+    eqFunc = eqFunc || test.strictEqual.bind(test);
     var l = new lol(function(response) {
-        test.strictEqual(response, expected);
+        eqFunc(response, expected);
         done();
     });
     l.evaluate(tree);
 }
 
-function t(expected, expression, test) {
+function t(expected, expression, test, eqFunc) {
     var args = Array.prototype.slice.call(arguments);
 
     return function(cb) {
-        t_(expected, expression, test, cb);
+        t_(expected, expression, test, cb, eqFunc);
     }
 }
 
@@ -245,6 +246,34 @@ exports.testCast = function(test) {
         t(true, setup + 'NUM IS NOW A TROOF\nNUM', test),
         t(null, setup + 'NUM IS NOW A NOOB\nNUM', test),
         t('12', setup + 'NUM IS NOW A YARN\nNUM', test)
+    ], function() {
+        test.done();
+    });
+}
+
+exports.testArray = function(test) {
+    var setup = '';
+    var f = test.deepEqual.bind(test);
+
+    async.series([
+        t([], 'I HAS A array ITS GOT NOTHING\narray', test, f),
+        t([1, 2, 3], 'I HAS A array ITS GOT 1 AN 2 AN 3\narray', test, f),
+        t([1, 2, 3], 'I HAS A array ITS GOT 1 AN SUM OF 1 AN 1 AN 3\narray', test, f),
+        t([3, 2, 1], 'I HAS A array ITS GOT NOTHING\narray R GOT 3 AN 2 AN 1\narray', test, f),
+        t([3, 2, 1], 'I HAS A array\narray R GOT 3 AN 2 AN 1\narray', test, f),
+
+        t([null, 1, 5, [2, 4, 8]],
+                    'I HAS A array ITS GOT NOTHING\n' +
+                     'array!1 R 1\n' +
+                     'array!2 R 5\n' +
+                     'array!3 R GOT 2 AN 4 AN 8\n' +
+                     'array\n',
+        test, f),
+
+        // index lookup
+        t(3,'I HAS A array ITS GOT 3 AN 2 AN 1\narray!0', test, f),
+        t(2,'I HAS A array ITS GOT 3 AN 2 AN 1\narray!1', test, f),
+        t(1,'I HAS A array ITS GOT 3 AN 2 AN 1\narray!2', test, f),
     ], function() {
         test.done();
     });

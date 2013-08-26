@@ -14,9 +14,11 @@
 "WIN"                                           return "TROOF"
 "FAIL"                                          return "TROOF"
 "NOOB"                                          return "NOOB"
+"NOTHING"                                       return "NOTHING"
 "HAI"\s*                                        /* skip */
 "KTHXBYE"\s*                                    /* skip */
 "KTHX"                                          return "KTHX"
+"IT"[SZ]\s+"GOT"                                return "ITS_GOT"
 "IT"[SZ]                                        return "ITS"
 "I"\s+"HAS"\s+"A"                               return "VAR_DEC"
 "BIG"G?"R"\s+"THAN"                             return "BIN_OP"
@@ -38,6 +40,7 @@
 "ANY"\s+"OF"                                    return "IDENTIFIER"
 "AN"                                            return "SEP"
 "MKAY"                                          return "MKAY"
+"R"\s+"GOT"                                     return "R_GOT"
 "R"                                             return "R"
 "O"\s+"RLY"\s*"?"                               return "O_RLY"
 "YA"\s+"RLY"                                    return "YA_RLY"
@@ -72,6 +75,7 @@
 "("                                             return "("
 ")"                                             return ")"
 "?"                                             /* skip */
+"!"                                             return "!"
 <<EOF>>                                         return "EOF"
 .                                               return "INVALID"
 
@@ -179,9 +183,42 @@ simple_exp
     | CAST_MAEK simple_exp "A" type
         { $$ = new ast.Cast(@$, $2, $4); }
     ;
+index
+    : NUMBER { $$ = new ast.Literal(@$, Number($1)); }
+    | IDENTIFIER { $$ = new ast.Identifier(@$, $1); }
+    | "(" index ")" { $$ = $2; }
+    ;
+
+indexer
+    : simple_exp "!" index {
+        $$ = new ast.Indexer(@$, $1, $3);
+    }
+    | indexer "!" index  {
+        $$ = new ast.Indexer(@$, $1, $3);
+    }
+    ;
+
+exp
+    : indexer { $$ = $1; }
+    | simple_exp { $$ = $1; }
+    ;
+
+array_dec
+    : simple_exp
+        { $$ = new ast.Literal(@$, [$1]) }
+    | NOTHING
+        { $$ = new ast.Literal(@$, []) }
+    | array_dec SEP simple_exp
+        {
+            $1.value.push($3);
+            $$ = $1;
+        }
+    ;
 
 var_dec
     : VAR_DEC IDENTIFIER ITS simple_exp
+        { $$ = new ast.Declaration(@$, $2, $4) }
+    | VAR_DEC IDENTIFIER ITS_GOT array_dec
         { $$ = new ast.Declaration(@$, $2, $4) }
     | VAR_DEC IDENTIFIER
         { $$ = new ast.Declaration(@$, $2) }
@@ -225,20 +262,27 @@ body
         }
     ;
 
+
+
 assignment
-    : IDENTIFIER "R" simple_exp
+    : IDENTIFIER R simple_exp
+        { $$ = new ast.Assignment(@$, $1, $3); }
+    | IDENTIFIER R_GOT array_dec
+        { $$ = new ast.Assignment(@$, $1, $3); }
+    | indexer R simple_exp
+        { $$ = new ast.Assignment(@$, $1, $3); }
+    | indexer R_GOT array_dec
         { $$ = new ast.Assignment(@$, $1, $3); }
     ;
 
-
 line
     : var_dec { $$ = $1; }
-    | simple_exp { $$ = $1; }
     | loop { $$ = $1; }
     | O_NVM { $$ = new ast.NoOp(@$); }
     | GTFO { $$ = new ast.Break(@$); }
     | FOUND_YR simple_exp { $$ = new ast.Return(@$, $2); }
     | assignment {$$ = $1; }
+    | exp { $$ = $1; }
     | VISIBLE simple_exp
         { $$ = new ast.Visible(@$, $2); }
     | GIMMEH IDENTIFIER

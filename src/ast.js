@@ -31,6 +31,14 @@ lol.ast.Assignment = function(location, name, value) {
 lol.ast.Assignment.prototype = Object.create(lol.ast.Node.prototype);
 
 
+lol.ast.Indexer = function(location, lhs, rhs) {
+    lol.ast.Node.call(this, location, 'Indexer');
+    this.lhs = lhs;
+    this.rhs = rhs;
+}
+lol.ast.Indexer.prototype = Object.create(lol.ast.Node.prototype);
+
+
 lol.ast.Identifier = function(location, name) {
     lol.ast.Node.call(this, location, 'Identifier');
     this.name = name;

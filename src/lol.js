@@ -71,7 +71,8 @@ lol.prototype._waitFor = function(nodes, f, options) {
         nodes: nodes.slice(0),
         results: [],
         f: f,
-        options: options
+        options: options,
+        inProgress: false
     });
 };
 
@@ -82,8 +83,19 @@ lol.prototype._current = function(current) {
     var self = this;
     var node = current.nodes.shift();
     if (!node) {
-        return;
+        if (current.inProgress) {
+            return;
+        }
+        else {
+            // special case: there were no arguments.
+            current.f(current.results);
+            self._currentNode = null;
+            return;
+        }
     }
+
+    current.inProgress = true;
+
     this._evaluate(node, function(ret) {
         if (current.options.setIt) {
             self._setSymbol('IT', ret);
@@ -192,7 +204,7 @@ lol.prototype._findScope = function(name) {
     var scope = this._scope;
     for (var i = scope.length - 1; i >= 0; i--) {
         if (scope[i].name === name) {
-            return scope;
+            return scope[i];
         }
     }
     return null;
@@ -221,13 +233,74 @@ lol.prototype._getSpecial = function(name) {
 };
 
 
+lol.prototype._index = function(val, index) {
+    if (!val || typeof val.length === 'undefined') {
+        throw new Error('Not indexable');
+    }
+    var normalisedIndex = index;
+    while (normalisedIndex < 0) {
+        normalisedIndex += val.length;
+    }
+
+    if (typeof val === 'string') {
+        return val.charAt(normalisedIndex);
+    }
+    else if (Object.prototype.toString.call(val) === '[object Array]' ) {
+        if (normalisedIndex < val.length) {
+            return val[normalisedIndex];
+        }
+        else {
+            throw new Error('Index ' + index + ' out of range');
+        }
+    } else {
+        throw new Error('Not indexable');
+    }
+};
+
+lol.prototype._setIndex = function(obj, val, index) {
+    // Note this won't actually work for strings yet because they're immutable
+    // We'll get back a different string than we sent in, which makes it
+    // pretty much useless to the caller in the context of writing to a variable
+    // The answer is probably to switch all internal value representations to
+    // objects wrapping JS primitives so we end up with references.
+
+    if (!obj || typeof obj.length === 'undefined') {
+        throw new Error('Not indexable');
+    }
+    if (Object.prototype.toString.call(obj) === '[object Array]' ) {
+        while (index > obj.length - 1) {
+            obj.push(null);
+        }
+        obj[index] = val;
+        return val;
+    } else {
+        throw new Error('Not indexable');
+    }
+};
+
+
 /*****************************************************************************
  *  NODE EVALUATION FUNCTIONS
  ****************************************************************************/
 
 lol.prototype._evaluateLiteral = function(node, done) {
-    // terminal
-    done(node.value);
+    if (Object.prototype.toString.call(node.value) === '[object Array]' ) {
+        this._waitFor(node.value, function(values) {
+            done(values);
+        })
+    } else {
+        done(node.value);
+    }
+};
+
+lol.prototype._evaluateIndexer = function(node, done) {
+    var self = this;
+    this._waitFor([node.lhs, node.rhs], function(vals) {
+        var lhs = vals[0],
+            rhs = vals[1];
+        var index = self._index(lhs, rhs);
+        done(index);
+    });
 };
 
 lol.prototype._evaluateFunctionCall = function(node, done) {
@@ -272,8 +345,38 @@ lol.prototype._evaluateIdentifier = function(node, done) {
     done(s);
 };
 
+lol.prototype._evaluateAssignmentIndex = function(node, val, done) {
+    var self = this;
+    var path = [];
+    debugger;
+    this._waitFor([node.name.lhs, node.name.rhs, node.value], function(vals) {
+        var lhs = vals[0],
+            rhs = vals[1],
+            value = vals[2];
+        self._setIndex(lhs, value, rhs);
+        done(value);
+    });
+};
+
+lol.prototype._evaluateAssignmentNormal = function(node, val, done) {
+    this._setSymbol(node.name, val);
+    done(val);
+}
 
 lol.prototype._evaluateAssignment = function(node, done) {
+
+    var self = this;
+    this._waitFor([node.value], function(values) {
+        var val = values[0];
+        if (node.name._name === 'Indexer') {
+            self._evaluateAssignmentIndex(node, val, done);
+        } else {
+            self._evaluateAssignmentNormal(node, val, done);
+        }
+    });
+};
+
+lol.prototype.evaluate = function(node, done) {
     var self = this;
     this._waitFor([node.value], function(values) {
         self._setSymbol(node.name, values[0]);
@@ -417,7 +520,7 @@ lol.prototype._callFunction = function(f, args, done) {
     });
 
     if (!f._data || f._data.builtIn) {
-        var ret = f.apply(null, args);
+        var ret = f.apply(self, args);
         this._pop('function');
         done(ret);
 
@@ -428,8 +531,8 @@ lol.prototype._callFunction = function(f, args, done) {
                         typeof args[i] === 'undefined' ? null : args[i]);
     }
 
-    f(function(ret) {
-        self._pop('function')
+    f.call(self, function(ret) {
+        self._pop('function');
         done(ret);
     });
 };
@@ -437,7 +540,6 @@ lol.prototype._callFunction = function(f, args, done) {
 
 lol.prototype._evaluateFunctionDefinition = function(node, done) {
     // terminal
-    var self = this;
 
     // we can keep consistency with natively implemented functions
     // by implementing the evaluation of a function as a function.
@@ -451,7 +553,17 @@ lol.prototype._evaluateFunctionDefinition = function(node, done) {
     // add an async property to the function. This should be ok.
 
     var f = function(done) {
-        self._waitFor([node.body], function(lines) {
+        // The caller MUST set 'this'. We cannot rely on a 'self' variable in
+        // the parent scope, because this introduces horrible, horrible bugs if
+        // this object is cloned (i.e. this function will alter the state of a
+        // different lol interpreter).
+        if (!(this instanceof lol)) {
+            debugger;
+        }
+        // We can use one for the next function though, as long as 'this' is
+        // now correct.
+        var self = this;
+        this._waitFor([node.body], function(lines) {
             var ret = self._getSpecial('return');
             if (typeof ret === 'undefined') {
                 ret = self.getSymbol('IT');
@@ -469,7 +581,7 @@ lol.prototype._evaluateFunctionDefinition = function(node, done) {
     };
 
 
-    self._setSymbol(node.name, f, {setIt: true});
+    this._setSymbol(node.name, f, {setIt: true});
     done(null);
 }
 
@@ -534,6 +646,7 @@ lol.prototype._evaluate = function(node, done) {
         'Gimmeh' : this._evaluateGimmeh,
         'Identifier': this._evaluateIdentifier,
         'If': this._evaluateIf,
+        'Indexer': this._evaluateIndexer,
         'Literal': this._evaluateLiteral,
         'Loop' : this._evaluateLoop,
         'LoopCondition' : this._evaluateLoopCondition,
@@ -591,6 +704,7 @@ lol.prototype.evaluateWatchExpression = function(tree, done, error) {
         }
         return s_;
     }
+
     var l = new lol(done, error);
     l._io = this._io;
     l._scope = this._scope.map(function(s) {
@@ -646,7 +760,6 @@ lol.prototype.evaluate = function(tree, dontReset) {
             // taking all year to execute a simple program because we're forever
             // scheduling execution for the future.
             if (this._cancel || self._isPaused) {
-                console.log('pausing');
                 this._isRunning = false;
                 return;
             }
