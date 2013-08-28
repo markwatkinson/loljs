@@ -175,6 +175,30 @@ lol.ast.Breakpoint = function(location) {
 lol.ast.Breakpoint.prototype = Object.create(lol.ast.Node.prototype);
 
 
+lol.ast.Switch = function(location, branches) {
+    lol.ast.Node.call(this, location, 'Switch');
+    this.branches = branches || [];
+};
+lol.ast.Switch.prototype = Object.create(lol.ast.Node.prototype);
+
+lol.ast.Case = function(location, condition, body) {
+    lol.ast.Node.call(this, location, 'Case');
+    this.condition = condition;
+    this.body = body;
+};
+lol.ast.Case.prototype = Object.create(lol.ast.Node.prototype);
+
+lol.ast.CaseDefault = function(location, body) {
+    lol.ast.Node.call(this, location, 'CaseDefault');
+    this.body = body;
+};
+lol.ast.CaseDefault.prototype = Object.create(lol.ast.Node.prototype);
+
+lol.ast.Break = function(location) {
+    lol.ast.Node.call(this, location, 'Break');
+}
+lol.ast.Break.prototype = Object.create(lol.ast.Node.prototype);
+
 if (typeof module !== 'undefined') {
     module.exports = lol.ast;
 }

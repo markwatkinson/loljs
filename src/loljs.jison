@@ -35,7 +35,8 @@
 "BOTH"\s+"OF"                                   return "P_BIN_OP"
 "EITHER"\s+"OF"                                 return "P_BIN_OP"
 "WON"\s+"OF"                                    return "P_BIN_OP"
-"NOT"                                           return "NOT"
+"LEN"\s+"OF"                                    return "UN_OP"
+"NOT"                                           return "UN_OP"
 "ALL"\s+"OF"                                    return "IDENTIFIER"
 "ANY"\s+"OF"                                    return "IDENTIFIER"
 "AN"                                            return "SEP"
@@ -71,6 +72,9 @@
 "IS"\s+"NOW"\s+"A"                              return "CAST_IS_NOW"
 "A"                                             return "A"
 "PLZ HALP"                                      return "HALP"
+"WTF"\??                                        return "WTF"
+"OMG"                                           return "OMG"
+"OMGWTF"                                        return "OMGWTF"
 [a-zA-Z_]+[a-zA-Z_0-9]*                         return "IDENTIFIER"
 "("                                             return "("
 ")"                                             return ")"
@@ -81,7 +85,7 @@
 
 /lex
 
-%left "NOT"
+%left "UN_OP"
 %left "P_BIN_OP" "BIN_OP"
 %left "BIGGR_THAN" "SMALLR_THAN"
 
@@ -105,9 +109,9 @@ arg_end
     ;
 
 arg_list
-    : simple_exp
+    : exp
         { $$ = new ast.ArgList(@$, [$1]); }
-    | arg_list SEP simple_exp
+    | arg_list SEP exp
         {
             $1.push($3);
             $$ = $1
@@ -136,8 +140,8 @@ loop_operation
     ;
 
 loop_condition
-    : TIL simple_exp { $$ = new ast.LoopCondition(@$, 'until', $2); }
-    | WILE simple_exp { $$ = new ast.LoopCondition(@$, 'while', $2); }
+    : TIL exp { $$ = new ast.LoopCondition(@$, 'until', $2); }
+    | WILE exp { $$ = new ast.LoopCondition(@$, 'while', $2); }
     ;
 
 loop_end
@@ -152,6 +156,33 @@ loop
             $$ = new ast.Loop(@$, $6, $3, $4);
         }
     ;
+
+wtf_branch
+    : OMG exp eol body {
+        $$ = [];
+        $$.push(new ast.Case(@$, $2, $4));
+    }
+    | OMGWTF eol body {
+        $$ = [];
+        $$.push(new ast.CaseDefault(@$, $3));
+    }
+    | wtf_branch OMG exp eol body {
+        $1.push(new ast.Case(@$, $3, $5));
+        $$ = $1;
+    }
+    | wtf_branch OMGWTF eol body {
+        $1.push(new ast.CaseDefault(@$, $4));
+        $$ = $1;
+    }
+    ;
+wtf
+    : WTF eol wtf_branch OIC {
+        $$ = new ast.Switch(@$, $3)
+    }
+    | WTF eol OIC {
+        $$ = new ast.Switch(@$)
+    };
+
 type
     : TYPE {$$ = $1; }
     | NOOB {$$ = $1; }
@@ -167,10 +198,11 @@ simple_exp
             var args = new ast.ArgList(@$, [$2, $4]);
             $$ = new ast.FunctionCall(@$, $1, args);
         }
-    | NOT simple_exp
+    | UN_OP simple_exp
         {
-            var args =  new ast.ArgList(@$, [$2]);
-            $$ = new ast.FunctionCall(@$, 'NOT', args);
+            var args = new ast.ArgList(@$, [$2]);
+            var fName = $1.replace(/\s+/g, ' ');
+            $$ = new ast.FunctionCall(@$, fName, args);
         }
     | function_call { $$ = $1; }
     | NUMBER { $$ = new ast.Literal(@$, Number($1)); }
@@ -204,11 +236,11 @@ exp
     ;
 
 array_dec
-    : simple_exp
+    : exp
         { $$ = new ast.Literal(@$, [$1]) }
     | NOTHING
         { $$ = new ast.Literal(@$, []) }
-    | array_dec SEP simple_exp
+    | array_dec SEP exp
         {
             $1.value.push($3);
             $$ = $1;
@@ -216,7 +248,7 @@ array_dec
     ;
 
 var_dec
-    : VAR_DEC IDENTIFIER ITS simple_exp
+    : VAR_DEC IDENTIFIER ITS exp
         { $$ = new ast.Declaration(@$, $2, $4) }
     | VAR_DEC IDENTIFIER ITS_GOT array_dec
         { $$ = new ast.Declaration(@$, $2, $4) }
@@ -265,11 +297,11 @@ body
 
 
 assignment
-    : IDENTIFIER R simple_exp
+    : IDENTIFIER R exp
         { $$ = new ast.Assignment(@$, $1, $3); }
     | IDENTIFIER R_GOT array_dec
         { $$ = new ast.Assignment(@$, $1, $3); }
-    | indexer R simple_exp
+    | indexer R exp
         { $$ = new ast.Assignment(@$, $1, $3); }
     | indexer R_GOT array_dec
         { $$ = new ast.Assignment(@$, $1, $3); }
@@ -280,10 +312,10 @@ line
     | loop { $$ = $1; }
     | O_NVM { $$ = new ast.NoOp(@$); }
     | GTFO { $$ = new ast.Break(@$); }
-    | FOUND_YR simple_exp { $$ = new ast.Return(@$, $2); }
+    | FOUND_YR exp { $$ = new ast.Return(@$, $2); }
     | assignment {$$ = $1; }
     | exp { $$ = $1; }
-    | VISIBLE simple_exp
+    | VISIBLE exp
         { $$ = new ast.Visible(@$, $2); }
     | GIMMEH IDENTIFIER
         { $$ = new ast.Gimmeh(@$, $2); }
@@ -297,4 +329,5 @@ line
     | conditional { $$ = $1; }
     | function_def { $$ = $1; }
     | HALP { $$ = new ast.Breakpoint(@$); }
+    | wtf { $$ = $1; }
     ;

@@ -200,9 +200,23 @@ exports.testLoops = function(test) {
         'LOOP_COUNTER',
     ].join('\n');
 
+
+
     async.series([
         t(10, e1, test),
-        t(5, e2, test)
+        t(5, e2, test),
+
+        // This loop is equivalent to:
+        // var counter = 0; while(counter <= "1234".length) { counter++ }
+        t(5, [
+                'I HAS A COUNTER ITZ 0',
+                'I HAS A PROGRAM ITZ "1234"',
+                'IM IN YR LOOP UPPIN YR COUNTER WILE BOTH SAEM COUNTER AN SMALLR OF COUNTER AN LEN OF PROGRAM',
+                '       O NVM',
+                'IM OUTTA YR LOOP',
+                'COUNTER'
+            ].join('\n'), test)
+
     ], function() {
         test.done();
     });
@@ -285,4 +299,39 @@ exports.testArray = function(test) {
     ], function() {
         test.done();
     });
+}
+
+exports.testSwitch = function(test) {
+    var template = [
+        'I HAS A output',
+        'I HAS A COLOR ITS "{0}"',
+        'COLOR, WTF?',
+        '   OMG "RED"',
+        '       output R "R"',
+        '       {1}',
+        '   OMG "GREEN"',
+        '       output R "G"',
+        '       GTFO',
+        '   OMGWTF',
+        '       output R "NOTHING"',
+        'OIC',
+        'output'].join('\n');
+
+    function make(color, fallthrough) {
+        var ret = template.replace('{0}', color)
+            .replace('{1}', !fallthrough ? 'GTFO' : '');
+        return ret;
+    }
+
+    async.series([
+        // green => g
+        t('G', make('GREEN', false), test),
+        // red => r
+        t('R', make('RED', false), test),
+        // red with fallthrough => g
+        t('G', make('RED', true), test),
+        // no match
+        t('NOTHING', make('BLUE'), test)
+    ], function() { test.done(); });
+
 }

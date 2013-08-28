@@ -213,8 +213,13 @@ lol.prototype._findScope = function(name) {
 lol.prototype._findScopeForSpecial = function(symbol) {
     if (symbol === 'return') {
         return this._findScope('function');
-    } else {
-        return scope[scope.length - 1];
+    } else if (symbol === 'switch-condition') {
+        return this._findScope('switch');
+    } else if (symbol === 'broken') {
+        return this._findScope('switch')
+    }
+    else {
+        return this._scope[this._scope.length - 1];
     }
 }
 
@@ -627,6 +632,60 @@ lol.prototype._evaluateReturn = function(node, done) {
     });
 };
 
+lol.prototype._evaluateSwitch = function(node, done) {
+    var self = this;
+    var it = self.getSymbol('IT');
+    this._push({
+        name: 'switch',
+        'switch-condition': it,
+        broken: false
+    });
+    var branches = node.branches.slice(0);
+    branches.reverse();
+    // branches is now a stack
+
+    var fall = false
+
+    function next() {
+        var b = branches.pop();
+        if (!b || self._getSpecial('broken')) {
+            self._pop('switch');
+            done();
+            return;
+        }
+        if (b._name === 'CaseDefault' || fall) {
+            evalBranch(b);
+        }
+        else {
+            // branch is a normal case statement and has an expression
+            self._waitFor([b.condition], function(vals) {
+                var c = vals[0];
+
+                if (lol.builtIns['BOTH SAEM'](c, it)) {
+                    evalBranch(b);
+                } else {
+                    next();
+                }
+            });
+        }
+    }
+
+    function evalBranch(b) {
+        self._waitFor([b.body], function(vals) {
+            fall = !self._getSpecial('broken');
+            next();
+        });
+    }
+
+    next();
+
+};
+
+lol.prototype._evaluateBreak = function(node, done) {
+    this._setSpecial('broken', true);
+    done();
+};
+
 lol.prototype._evaluateBreakpoint = function(node, done) {
     this.pause();
     done();
@@ -637,6 +696,7 @@ lol.prototype._evaluate = function(node, done) {
 
     var handlers = {
         'Assignment': this._evaluateAssignment,
+        'Break': this._evaluateBreak,
         'Breakpoint': this._evaluateBreakpoint,
         'Body': this._evaluateBody,
         'Cast': this._evaluateCast,
@@ -652,6 +712,7 @@ lol.prototype._evaluate = function(node, done) {
         'LoopCondition' : this._evaluateLoopCondition,
         'NoOp': this._evaluateNoOp,
         'Return': this._evaluateReturn,
+        'Switch': this._evaluateSwitch,
         'Visible' : this._evaluateVisible
     };
 
@@ -838,6 +899,12 @@ lol.builtIns = {
         }
         return false;
     },
+    'BIGGR OF': function(a, b) {
+        return Math.max(a, b);
+    },
+    'SMALLR OF': function(a, b) {
+        return Math.min(a, b);
+    },
     'SUM OF' : function(a, b) {
         return a + b;
     },
@@ -867,7 +934,10 @@ lol.builtIns = {
     },
     'BIGGR THAN' : function(a, b) { return a > b; },
     'SMALLR THAN' : function(a, b) { return a < b; },
-    'MOD OF' : function(a, b) {  return a % b;  }
+    'MOD OF' : function(a, b) {  return a % b;  },
+    'LEN OF': function(a) {
+        return a && typeof a.length !== 'undefined' ? a.length : null
+    }
 };
 
 (function() {
