@@ -37,6 +37,8 @@
 "WON"\s+"OF"                                    return "P_BIN_OP"
 "LEN"\s+"OF"                                    return "UN_OP"
 "NOT"                                           return "UN_OP"
+"ORD"\s+"OF"                                    return "UN_OP"
+"CHR"\s+"OF"                                    return "UN_OP"
 "ALL"\s+"OF"                                    return "IDENTIFIER"
 "ANY"\s+"OF"                                    return "IDENTIFIER"
 "AN"                                            return "SEP"
@@ -88,6 +90,7 @@
 %left "UN_OP"
 %left "P_BIN_OP" "BIN_OP"
 %left "BIGGR_THAN" "SMALLR_THAN"
+%left "!"
 
 %start root
 %% /* language grammar */
@@ -149,7 +152,7 @@ loop_end
     | IM_OUTTA_YR { $$ = $1; }
     ;
 loop
-    : IM_IN_YR IDENTIFIER eol body KTHX
+    : IM_IN_YR IDENTIFIER eol body loop_end
         { $$ = new ast.Loop(@$, $4) }
     | IM_IN_YR IDENTIFIER loop_operation loop_condition eol body loop_end
         {
@@ -188,7 +191,13 @@ type
     | NOOB {$$ = $1; }
     ;
 simple_exp
-    : simple_exp BIN_OP simple_exp
+    :
+    /*
+     * unfortunately this introduces a few S/R conflicts
+     * but tests pass so I'm OK with it for now.
+     */
+    indexer { $$ = $1; }
+    | simple_exp BIN_OP simple_exp
         {
             var args = new ast.ArgList(@$, [$1, $3]);
             $$ = new ast.FunctionCall(@$, $2, args);
@@ -231,8 +240,7 @@ indexer
     ;
 
 exp
-    : indexer { $$ = $1; }
-    | simple_exp { $$ = $1; }
+    : simple_exp { $$ = $1; }
     ;
 
 array_dec

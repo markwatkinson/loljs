@@ -199,12 +199,31 @@ exports.testLoops = function(test) {
         'IM OUTTA YR LOOP',
         'LOOP_COUNTER',
     ].join('\n');
+    var e3 = [
+        'I HAS A COUNTER ITZ 0',
+        'IM IN YR LOOP UPPIN YR COUNTER WILE COUNTER SMALLR THAN 10',
+        '  GTFO',
+        'IM OUTTA YR LOOP',
+        'COUNTER',
+    ].join('\n');
 
+    var e4 = [
+        'I HAS A COUNTER ITS 0',
+        'IM IN YR LOOP',
+        '       COUNTER R SUM OF 1 AN COUNTER',
+        '       BOTH SAEM COUNTER AN 10, O RLY?',
+        '               YA RLY, GTFO',
+        '       OIC',
+        'IM OUTTA YR LOOP',
+        'COUNTER'
+    ].join('\n');
 
 
     async.series([
         t(10, e1, test),
         t(5, e2, test),
+        t(0, e3, test),
+        t(10, e4, test),
 
         // This loop is equivalent to:
         // var counter = 0; while(counter <= "1234".length) { counter++ }

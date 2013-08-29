@@ -53,7 +53,6 @@ var lol = function(onDone, onPaused) {
     this._currentNode = null;
 
     this._errors = [];
-
 };
 
 /**
@@ -163,6 +162,7 @@ lol.prototype.pos = function() {
 lol.prototype._push = function(s) {
     if (!s.name) { throw new Error('Scope must have name'); }
     s.symbols = s.symbols || {};
+    s.listeners = s.listeners || [];
     s.symbols.IT = null;
     this._scope.push(s);
 };
@@ -199,11 +199,24 @@ lol.prototype._setSymbol = function(name, value) {
     scope[scope.length - 1].symbols[name] = value;
 }
 
-
+/**
+ * Returns the nearest scope with the given name.
+ * If name is a string, the highest instance of that scope is returned.
+ * If name is an array, the highest instance of any of the given scopes is returned.
+ * If name is not given, the current scope is returned.
+ */
 lol.prototype._findScope = function(name) {
     var scope = this._scope;
+
+    if (!name) {
+        return scope[scope.length -1];
+    }
+
+    var isS = typeof name === 'string';
     for (var i = scope.length - 1; i >= 0; i--) {
-        if (scope[i].name === name) {
+        if (isS && scope[i].name === name) {
+            return scope[i];
+        } else if (!isS && name.indexOf(scope[i].name) >= 0) {
             return scope[i];
         }
     }
@@ -216,7 +229,7 @@ lol.prototype._findScopeForSpecial = function(symbol) {
     } else if (symbol === 'switch-condition') {
         return this._findScope('switch');
     } else if (symbol === 'broken') {
-        return this._findScope('switch')
+        return this._findScope(['switch', 'loop'])
     }
     else {
         return this._scope[this._scope.length - 1];
@@ -227,6 +240,8 @@ lol.prototype._setSpecial = function(name, value) {
     var s = this._findScopeForSpecial(name);
     if (s) {
         s[name] = value;
+    } else {
+//         debugger;
     }
 };
 
@@ -234,8 +249,31 @@ lol.prototype._getSpecial = function(name) {
     var s = this._findScopeForSpecial(name);
     if (s) {
         return s[name];
+    } else {
+//         debugger;
     }
 };
+
+lol.prototype._listen = function(event, action) {
+    this._findScope().listeners.push({
+        event: event,
+        action: action
+    });
+};
+
+lol.prototype._emit = function(event) {
+    var brk = false;
+    for (var i = this._scope.length - 1; i >= 0 && !brk; i--) {
+        var s = this._scope[i];
+        for (var j = 0; j < s.listeners.length && !brk; j++) {
+            var l = s.listeners[j];
+            if (l.event === event && l.action()) {
+                brk = true;
+            }
+        }
+    }
+    return brk;
+}
 
 
 lol.prototype._index = function(val, index) {
@@ -353,7 +391,6 @@ lol.prototype._evaluateIdentifier = function(node, done) {
 lol.prototype._evaluateAssignmentIndex = function(node, val, done) {
     var self = this;
     var path = [];
-    debugger;
     this._waitFor([node.name.lhs, node.name.rhs, node.value], function(vals) {
         var lhs = vals[0],
             rhs = vals[1],
@@ -487,6 +524,7 @@ lol.prototype._evaluateLoop = function(node, done) {
         }
     }
     self._push({name: 'loop'});
+    self._setSpecial('broken', false);
 
     var evalOp = function() {
         if (node.op) {
@@ -500,19 +538,29 @@ lol.prototype._evaluateLoop = function(node, done) {
         self._waitFor([node.body], done);
     };
 
+    var finish = function() {
+        self._pop('loop');
+        done(null);
+    }
+
     var loop = function() {
         self._waitFor([node.condition], function(vals) {
-            if (vals[0]) {
+            var broken = self._getSpecial('broken');
+            if ((node.condition === null || vals[0]) && !broken) {
                 evalBody(function() {
                     evalOp();
                     loop();
                 });
             } else {
-                self._pop('loop');
-                done(null);
+                finish();
             }
         });
     }
+
+    this._listen('break', function() {
+        finish();
+        return true;
+    });
     loop();
 }
 
@@ -644,13 +692,17 @@ lol.prototype._evaluateSwitch = function(node, done) {
     branches.reverse();
     // branches is now a stack
 
-    var fall = false
+    var fall = false;
+
+    function finish() {
+        self._pop('switch');
+        done();
+    }
 
     function next() {
         var b = branches.pop();
         if (!b || self._getSpecial('broken')) {
-            self._pop('switch');
-            done();
+            finish();
             return;
         }
         if (b._name === 'CaseDefault' || fall) {
@@ -677,13 +729,26 @@ lol.prototype._evaluateSwitch = function(node, done) {
         });
     }
 
+    this._listen('break', function() {
+        finish();
+        return true;
+    });
+
     next();
 
 };
 
 lol.prototype._evaluateBreak = function(node, done) {
     this._setSpecial('broken', true);
-    done();
+    if (this._emit('break')) {
+        // Intentionally do not call done() - this branch is now dead.
+        // Execution was resumed by listeners on the break event.
+    }
+    else {
+        debugger;
+        // no-one picked it up - we're not in a loop/switch
+        done();
+    }
 };
 
 lol.prototype._evaluateBreakpoint = function(node, done) {
@@ -937,6 +1002,12 @@ lol.builtIns = {
     'MOD OF' : function(a, b) {  return a % b;  },
     'LEN OF': function(a) {
         return a && typeof a.length !== 'undefined' ? a.length : null
+    },
+    'ORD OF': function(a) {
+        return a && a.charCodeAt ? a.charCodeAt(0) : -1;
+    },
+    'CHR OF': function(a) {
+        return String.fromCharCode(a);
     }
 };
 
