@@ -58,6 +58,21 @@ exports.testEscapeSequences = function(test) {
         t('I said "hello" to him', '"I said :"hello:" to him"', test),
         // unicode
         t('I like π', '"I like :(03C0)"', test),
+
+        // simple var interpolation
+        t('var is 12', [
+          'I HAS A var ITZ 12',
+          '"var is :{var}"'].join("\n"),
+          test),
+        // interpolation should not work on dynamically created strings -
+        // only literals.
+        t('var is :{var}', [
+          'I HAS A var ITZ 12',
+          'SMOOSH "var is :{" AN "var}" MKAY'].join("\n"),
+          test),
+        t('var is :{var}',
+          '"var is :{var}"',
+          test)
     ], function() {
         test.done();
     });

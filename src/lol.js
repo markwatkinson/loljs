@@ -327,11 +327,24 @@ lol.prototype._setIndex = function(obj, val, index) {
  ****************************************************************************/
 
 lol.prototype._evaluateLiteral = function(node, done) {
+    var self = this;
     if (Object.prototype.toString.call(node.value) === '[object Array]' ) {
         this._waitFor(node.value, function(values) {
             done(values);
         })
-    } else {
+    } else if (typeof node.value === 'string') {
+        done(node.value.replace(/:\{([\w_]+)\}/g, function($0, $1) {
+            var v = $1;
+            var replacement = $0;
+            try {
+                replacement = self.getSymbol(v);
+            } catch (e) {
+                self._error('No such symbol: ' + v);
+            }
+            return replacement;
+        }));
+    }
+    else {
         done(node.value);
     }
 };
